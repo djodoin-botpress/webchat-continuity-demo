@@ -1,0 +1,325 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Botpress Webchat — User Continuity (Node)</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #0f172a;
+        --panel: #1e293b;
+        --panel-2: #0b1220;
+        --text: #e2e8f0;
+        --muted: #94a3b8;
+        --accent: #3b82f6;
+        --accent-hover: #2563eb;
+        --danger: #ef4444;
+        --success: #10b981;
+        --border: #334155;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        background: var(--bg);
+        color: var(--text);
+        padding: 24px;
+      }
+      main {
+        max-width: 720px;
+        margin: 0 auto;
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 28px;
+      }
+      h1 { margin: 0 0 6px; font-size: 22px; }
+      p.lead { margin: 0 0 22px; color: var(--muted); line-height: 1.5; }
+      .card {
+        background: var(--panel-2);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 16px;
+        margin-bottom: 14px;
+      }
+      .card h2 {
+        margin: 0 0 10px;
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--muted);
+      }
+      code, pre {
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 12.5px;
+      }
+      pre {
+        background: #050a14;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 12px;
+        margin: 0;
+        overflow-x: auto;
+        white-space: pre-wrap;
+        word-break: break-all;
+        min-height: 1.5em;
+      }
+      label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 6px; }
+      input[type="text"] {
+        width: 100%;
+        background: #050a14;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        color: var(--text);
+        padding: 10px 12px;
+        font: inherit;
+      }
+      input[type="text"]:focus { outline: none; border-color: var(--accent); }
+      .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+      .row + .row { margin-top: 10px; }
+      button {
+        font: inherit;
+        padding: 9px 14px;
+        border-radius: 6px;
+        border: 1px solid var(--border);
+        background: var(--accent);
+        color: white;
+        cursor: pointer;
+        font-weight: 500;
+      }
+      button:hover { background: var(--accent-hover); }
+      button.secondary { background: transparent; color: var(--text); }
+      button.secondary:hover { background: rgba(255,255,255,0.05); }
+      button.danger { background: var(--danger); border-color: var(--danger); }
+      .pill {
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 999px;
+        font-size: 11px;
+        font-weight: 600;
+        background: rgba(16, 185, 129, 0.15);
+        color: var(--success);
+        border: 1px solid rgba(16, 185, 129, 0.4);
+      }
+      .pill.warn {
+        background: rgba(239, 68, 68, 0.15);
+        color: var(--danger);
+        border-color: rgba(239, 68, 68, 0.4);
+      }
+      .error {
+        color: var(--danger);
+        font-size: 13px;
+        margin-top: 8px;
+        min-height: 1.2em;
+      }
+      [hidden] { display: none !important; }
+    </style>
+  </head>
+
+  <body>
+    <main>
+      <h1>Webchat User Continuity — Node demo</h1>
+      <p class="lead">
+        Log in with a username. The backend ensures a Botpress user exists for it
+        (calling <code>POST /:clientId/users</code>) and returns the
+        <code>userKey</code> JWT. The same username on any device → same Botpress
+        user → same conversation history.
+      </p>
+
+      <!-- LOGIN VIEW -->
+      <section id="loginView" hidden>
+        <div class="card">
+          <h2>Log in</h2>
+          <form id="loginForm" autocomplete="on">
+            <label for="username">Username</label>
+            <input id="username" type="text" name="username" autocomplete="username"
+                   placeholder="alice" minlength="2" maxlength="32"
+                   pattern="[a-z0-9_-]{2,32}" required />
+            <div class="row" style="margin-top: 12px;">
+              <button type="submit">Log in / Sign up</button>
+              <span class="pill warn">Not authenticated</span>
+            </div>
+            <div class="error" id="loginError"></div>
+          </form>
+        </div>
+        <div class="card">
+          <h2>How it works</h2>
+          <pre>1. POST /api/login { username }
+2. Server looks up the username in .data/users.json
+3. If missing → POST {WEBCHAT_API}/:clientId/users → save { userId, userKey }
+4. Server returns { userId, userKey, conversationId } to this page
+5. Page writes them into bp-webchat-&lt;clientId&gt;-client (Zustand envelope)
+6. Page loads the inject script; webchat picks up the identity
+</pre>
+        </div>
+      </section>
+
+      <!-- APP VIEW -->
+      <section id="appView" hidden>
+        <div class="card">
+          <h2>Session</h2>
+          <div class="row">
+            <span class="pill" id="statusPill">logged in</span>
+            <span>as <code id="meName">…</code></span>
+            <span style="margin-left:auto"></span>
+            <button class="secondary" id="logoutBtn">Log out</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>Identity (from backend)</h2>
+          <pre id="meBlock">…</pre>
+        </div>
+
+        <div class="card">
+          <h2>Webchat localStorage envelope</h2>
+          <pre id="storageBlock">…</pre>
+        </div>
+      </section>
+    </main>
+
+    <script>
+      let CLIENT_ID = null;
+      let STORAGE_KEY = null;
+      let WEBCHAT_LOADED = false;
+
+      async function api(path, opts = {}) {
+        const res = await fetch(path, {
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          ...opts,
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+        return data;
+      }
+
+      function writeEnvelope({ userId, userKey, conversationId }) {
+        let envelope = {
+          state: { user: { userId, userToken: userKey }, conversationId: conversationId || null },
+          version: 0,
+        };
+        const existingRaw = localStorage.getItem(STORAGE_KEY);
+        if (existingRaw) {
+          try {
+            const existing = JSON.parse(existingRaw);
+            const sameUser = existing?.state?.user?.userId === userId;
+            if (sameUser && !envelope.state.conversationId && existing?.state?.conversationId) {
+              envelope.state.conversationId = existing.state.conversationId;
+            }
+          } catch {}
+        }
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(envelope));
+      }
+
+      function wipeWebchatStorage() {
+        for (let i = localStorage.length - 1; i >= 0; i--) {
+          const k = localStorage.key(i);
+          if (k && (k.startsWith('bp-webchat') || k.startsWith('bpchat'))) {
+            localStorage.removeItem(k);
+          }
+        }
+      }
+
+      function refreshStorageView() {
+        const block = document.getElementById('storageBlock');
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (!raw) {
+          block.textContent = '(empty)';
+          return;
+        }
+        try { block.textContent = JSON.stringify(JSON.parse(raw), null, 2); }
+        catch { block.textContent = raw; }
+      }
+
+      function loadWebchat() {
+        if (WEBCHAT_LOADED) return;
+        WEBCHAT_LOADED = true;
+        const s = document.createElement('script');
+        s.src = 'https://cdn.botpress.cloud/webchat/v3.6/inject.js';
+        s.onload = () => {
+          window.botpress.init({
+            clientId: CLIENT_ID,
+            configuration: { color: '#3b82f6', botName: 'Continuity Demo Bot' },
+          });
+          window.botpress.on('conversation', async (e) => {
+            refreshStorageView();
+            const convId = e?.conversationId || readConversationIdFromStorage();
+            if (convId) {
+              try { await api('/api/conversation', { method: 'POST', body: JSON.stringify({ conversationId: convId }) }); }
+              catch (err) { console.warn('failed to sync conversationId', err); }
+            }
+          });
+          window.botpress.on('message', refreshStorageView);
+        };
+        document.body.appendChild(s);
+      }
+
+      function readConversationIdFromStorage() {
+        try {
+          const raw = localStorage.getItem(STORAGE_KEY);
+          if (!raw) return null;
+          return JSON.parse(raw)?.state?.conversationId ?? null;
+        } catch { return null; }
+      }
+
+      async function renderLoggedIn(user) {
+        document.getElementById('meName').textContent = user.username;
+        document.getElementById('meBlock').textContent = JSON.stringify(user, null, 2);
+        refreshStorageView();
+        document.getElementById('loginView').hidden = true;
+        document.getElementById('appView').hidden = false;
+        loadWebchat();
+        setInterval(refreshStorageView, 2000);
+      }
+
+      function renderLoggedOut() {
+        document.getElementById('appView').hidden = true;
+        document.getElementById('loginView').hidden = false;
+        setTimeout(() => document.getElementById('username').focus(), 0);
+      }
+
+      document.getElementById('loginForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const errEl = document.getElementById('loginError');
+        errEl.textContent = '';
+        const username = document.getElementById('username').value;
+        try {
+          const data = await api('/api/login', {
+            method: 'POST',
+            body: JSON.stringify({ username }),
+          });
+          writeEnvelope(data);
+          await renderLoggedIn(data);
+        } catch (err) {
+          errEl.textContent = err.message;
+        }
+      });
+
+      document.getElementById('logoutBtn').addEventListener('click', async () => {
+        try { await api('/api/logout', { method: 'POST' }); } catch {}
+        wipeWebchatStorage();
+        location.reload();
+      });
+
+      (async () => {
+        const { clientId } = await api('/api/config');
+        CLIENT_ID = clientId;
+        STORAGE_KEY = `bp-webchat-${clientId}-client`;
+
+        const { user } = await api('/api/me');
+        if (user) {
+          writeEnvelope(user);
+          await renderLoggedIn(user);
+        } else {
+          renderLoggedOut();
+        }
+      })().catch((err) => {
+        document.body.innerHTML =
+          `<main><div class="card"><h2>Startup error</h2><pre>${err.message}</pre></div></main>`;
+      });
+    </script>
+  </body>
+</html>

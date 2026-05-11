@@ -1,0 +1,375 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Botpress Webchat — User Continuity Demo</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #0f172a;
+        --panel: #1e293b;
+        --panel-2: #0b1220;
+        --text: #e2e8f0;
+        --muted: #94a3b8;
+        --accent: #3b82f6;
+        --accent-hover: #2563eb;
+        --danger: #ef4444;
+        --success: #10b981;
+        --border: #334155;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        background: var(--bg);
+        color: var(--text);
+        padding: 24px;
+      }
+      main {
+        max-width: 760px;
+        margin: 0 auto;
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 28px;
+      }
+      h1 { margin: 0 0 6px; font-size: 22px; }
+      p.lead { margin: 0 0 22px; color: var(--muted); line-height: 1.5; }
+      ol.steps { margin: 0 0 22px; padding-left: 20px; color: var(--muted); line-height: 1.7; }
+      ol.steps strong { color: var(--text); }
+      .card {
+        background: var(--panel-2);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 16px;
+        margin-bottom: 14px;
+      }
+      .card h2 {
+        margin: 0 0 10px;
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--muted);
+      }
+      code, pre, textarea {
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 12.5px;
+      }
+      pre {
+        background: #050a14;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 12px;
+        margin: 0;
+        overflow-x: auto;
+        white-space: pre-wrap;
+        word-break: break-all;
+        min-height: 1.5em;
+      }
+      textarea {
+        width: 100%;
+        min-height: 90px;
+        background: #050a14;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        color: var(--text);
+        padding: 10px;
+        resize: vertical;
+      }
+      .row { display: flex; gap: 8px; flex-wrap: wrap; }
+      .row + .row { margin-top: 8px; }
+      button {
+        font: inherit;
+        padding: 9px 14px;
+        border-radius: 6px;
+        border: 1px solid var(--border);
+        background: var(--accent);
+        color: white;
+        cursor: pointer;
+        font-weight: 500;
+      }
+      button:hover { background: var(--accent-hover); }
+      button.secondary { background: transparent; color: var(--text); }
+      button.secondary:hover { background: rgba(255,255,255,0.05); }
+      button.danger { background: var(--danger); border-color: var(--danger); }
+      button.danger:hover { background: #dc2626; }
+      .empty { color: var(--muted); font-style: italic; }
+      .pill {
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 999px;
+        font-size: 11px;
+        font-weight: 600;
+        background: rgba(16, 185, 129, 0.15);
+        color: var(--success);
+        border: 1px solid rgba(16, 185, 129, 0.4);
+      }
+      .pill.warn {
+        background: rgba(239, 68, 68, 0.15);
+        color: var(--danger);
+        border-color: rgba(239, 68, 68, 0.4);
+      }
+      .toast {
+        position: fixed;
+        bottom: 24px;
+        left: 50%;
+        transform: translateX(-50%) translateY(20px);
+        background: var(--success);
+        color: white;
+        padding: 10px 18px;
+        border-radius: 8px;
+        opacity: 0;
+        transition: opacity 0.2s, transform 0.2s;
+        pointer-events: none;
+        font-size: 14px;
+        font-weight: 500;
+      }
+      .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+    </style>
+  </head>
+
+  <body>
+    <main>
+      <h1>Botpress Webchat — User Continuity Demo</h1>
+      <p class="lead">
+        The webchat stores its user identity
+        (<code>userId</code> + <code>userToken</code> + <code>conversationId</code>)
+        in <code>localStorage</code> under <code>bp-webchat-&lt;clientId&gt;</code>.
+        That entry is the entire identity — keep it and the same user/conversation comes back.
+      </p>
+
+      <ol class="steps">
+        <li><strong>Reload</strong> the page — the chat restores your conversation automatically.</li>
+        <li><strong>Start as new user</strong> wipes the entry and creates a fresh identity on next open.</li>
+        <li><strong>Export / Import</strong> the identity to carry the same user to another browser or device.</li>
+      </ol>
+
+      <div class="card">
+        <h2>Status</h2>
+        <div id="status">
+          <span class="pill warn" id="statusPill">No identity yet</span>
+          <span class="empty" style="margin-left: 8px;">Open the chat and send a message to create one.</span>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Stored identity (<code id="storageKey">bp-webchat-…</code>)</h2>
+        <pre id="identity"><span class="empty">empty</span></pre>
+      </div>
+
+      <div class="card">
+        <h2>All webchat-related <code>localStorage</code> keys</h2>
+        <p style="margin: 0 0 10px; color: var(--muted); font-size: 13px;">
+          Scans every key starting with <code>bp-</code>, <code>bpchat</code>, or <code>botpress</code>.
+          If the expected key above is empty but something shows up here, the webchat is using
+          a different storage convention than expected.
+        </p>
+        <pre id="allKeys"><span class="empty">nothing yet</span></pre>
+      </div>
+
+      <div class="card">
+        <h2>Diagnostics</h2>
+        <pre id="diag"><span class="empty">waiting for webchat events…</span></pre>
+      </div>
+
+      <div class="card">
+        <h2>Controls</h2>
+        <div class="row">
+          <button onclick="location.reload()">Reload page (same user)</button>
+          <button class="secondary" onclick="refreshIdentity(true)">Refresh shown identity</button>
+          <button class="danger" onclick="startFresh()">Start as new user</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Export / Import identity (cross-browser, cross-device)</h2>
+        <p style="margin: 0 0 10px; color: var(--muted); font-size: 13px;">
+          Copy this JSON, paste it into another browser running this same demo, then
+          click <em>Import</em>. The other browser will resume the same conversation as the same user.
+        </p>
+        <textarea id="exportBox" placeholder="Identity JSON will appear here, or paste one to import…"></textarea>
+        <div class="row" style="margin-top: 10px;">
+          <button class="secondary" onclick="copyExport()">Copy</button>
+          <button onclick="importIdentity()">Import &amp; reload</button>
+        </div>
+      </div>
+    </main>
+
+    <div class="toast" id="toast"></div>
+
+    <!--
+      Botpress Webchat v3 — Inject script.
+      1. Replace YOUR_CLIENT_ID with the clientId from your webchat configuration
+         in Botpress Cloud (Webchat → Advanced → Configuration → clientId).
+      2. botId is optional in modern webchat versions (clientId is enough);
+         include it if your configuration requires it.
+    -->
+    <script>
+      const CLIENT_ID = "YOUR_CLIENT_ID";
+      // v3.6 stores the identity under `${clientId}-client` and wraps it in
+      // a Zustand-style envelope: { state: { user, conversationId }, version }.
+      const STORAGE_KEY = `bp-webchat-${CLIENT_ID}-client`;
+      document.getElementById("storageKey").textContent = STORAGE_KEY;
+    </script>
+    <script src="https://cdn.botpress.cloud/webchat/v3.6/inject.js"></script>
+    <script>
+      const diagLines = [];
+      function diag(msg) {
+        const ts = new Date().toLocaleTimeString();
+        diagLines.push(`[${ts}] ${msg}`);
+        if (diagLines.length > 30) diagLines.shift();
+        document.getElementById("diag").textContent = diagLines.join("\n");
+      }
+
+      diag(`init() with clientId=${CLIENT_ID}`);
+      window.botpress.init({
+        clientId: CLIENT_ID,
+        configuration: {
+          color: "#3b82f6",
+          botName: "Continuity Demo Bot",
+        },
+      });
+
+      const events = [
+        "webchat:ready", "webchat:initialized", "webchat:opened", "webchat:closed",
+        "conversation", "message", "messageSent", "messageReceived", "error",
+      ];
+      for (const ev of events) {
+        try {
+          window.botpress.on(ev, (payload) => {
+            diag(`event: ${ev}${payload?.type ? ` (${payload.type})` : ""}`);
+            refreshIdentity();
+          });
+        } catch (e) {
+          diag(`could not subscribe to ${ev}: ${e?.message ?? e}`);
+        }
+      }
+
+      window.addEventListener("storage", (e) => {
+        if (e.key && (e.key.startsWith("bp-") || e.key.includes("botpress"))) {
+          diag(`localStorage change: ${e.key}`);
+          refreshIdentity();
+        }
+      });
+      setInterval(refreshIdentity, 1500);
+
+      function toast(msg, ok = true) {
+        const el = document.getElementById("toast");
+        el.textContent = msg;
+        el.style.background = ok ? "var(--success)" : "var(--danger)";
+        el.classList.add("show");
+        setTimeout(() => el.classList.remove("show"), 1800);
+      }
+
+      function readIdentity() {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (!raw) return null;
+        let parsed;
+        try { parsed = JSON.parse(raw); } catch { return null; }
+        // Unwrap Zustand envelope: { state: {...}, version: 0 }
+        return parsed?.state ?? parsed;
+      }
+
+      function scanAllKeys() {
+        const result = {};
+        for (let i = 0; i < localStorage.length; i++) {
+          const key = localStorage.key(i);
+          if (!key) continue;
+          const lower = key.toLowerCase();
+          if (lower.startsWith("bp-") || lower.startsWith("bpchat") || lower.includes("botpress")) {
+            try { result[key] = JSON.parse(localStorage.getItem(key)); }
+            catch { result[key] = localStorage.getItem(key); }
+          }
+        }
+        return result;
+      }
+
+      function refreshIdentity(announce = false) {
+        const data = readIdentity();
+        const pre = document.getElementById("identity");
+        const allPre = document.getElementById("allKeys");
+        const pill = document.getElementById("statusPill");
+        const statusRow = document.getElementById("status");
+        const exportBox = document.getElementById("exportBox");
+
+        const allKeys = scanAllKeys();
+        if (Object.keys(allKeys).length === 0) {
+          allPre.innerHTML = '<span class="empty">nothing yet</span>';
+        } else {
+          allPre.textContent = JSON.stringify(allKeys, null, 2);
+        }
+
+        if (!data) {
+          pre.innerHTML = '<span class="empty">empty</span>';
+          pill.className = "pill warn";
+          pill.textContent = "No identity yet";
+          statusRow.querySelector(".empty").textContent =
+            "Open the chat and send a message to create one.";
+          return;
+        }
+
+        pre.textContent = JSON.stringify(data, null, 2);
+        pill.className = "pill";
+        pill.textContent = data?.user?.userId
+          ? `user ${data.user.userId.slice(0, 12)}…`
+          : "identity stored";
+        statusRow.querySelector(".empty").textContent = data?.conversationId
+          ? `conversation ${data.conversationId.slice(0, 12)}…`
+          : "no active conversation";
+
+        if (document.activeElement !== exportBox) {
+          exportBox.value = JSON.stringify(data, null, 2);
+        }
+
+        if (announce) toast("Identity refreshed");
+      }
+
+      function startFresh() {
+        if (!confirm("Wipe the stored identity and start as a new user?")) return;
+        // Remove every webchat key, not just the identity envelope, so the
+        // message-history-* and sound entries don't leak into the next session.
+        const toRemove = [];
+        for (let i = 0; i < localStorage.length; i++) {
+          const key = localStorage.key(i);
+          if (key && (key.startsWith("bp-webchat") || key.startsWith("bpchat"))) {
+            toRemove.push(key);
+          }
+        }
+        toRemove.forEach((k) => localStorage.removeItem(k));
+        location.reload();
+      }
+
+      async function copyExport() {
+        const text = document.getElementById("exportBox").value.trim();
+        if (!text) return toast("Nothing to copy", false);
+        try {
+          await navigator.clipboard.writeText(text);
+          toast("Copied to clipboard");
+        } catch {
+          toast("Copy failed — select and copy manually", false);
+        }
+      }
+
+      function importIdentity() {
+        const text = document.getElementById("exportBox").value.trim();
+        if (!text) return toast("Paste an identity JSON first", false);
+        let parsed;
+        try { parsed = JSON.parse(text); }
+        catch { return toast("Not valid JSON", false); }
+        // Accept either the inner state shape or the full envelope
+        const inner = parsed?.state ?? parsed;
+        if (!inner?.user?.userId || !inner?.user?.userToken) {
+          return toast("Missing user.userId or user.userToken", false);
+        }
+        const envelope = { state: inner, version: 0 };
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(envelope));
+        toast("Imported — reloading…");
+        setTimeout(() => location.reload(), 600);
+      }
+
+      refreshIdentity();
+    </script>
+  </body>
+</html>
