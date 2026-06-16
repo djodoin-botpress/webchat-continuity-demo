@@ -28,14 +28,11 @@ la façon dont le webchat persiste l'identité dans le `localStorage`.
 │         │ ◀───────────────────────  │         │
 │         │                           └─────────┘
 │         │
-│         │ writes to localStorage:
-│         │   bp-webchat-<clientId>-client
-│         │   = { state: { user: { userId, userToken }, conversationId },
-│         │       version: 0 }
-│         │
 │         │ loads https://cdn.botpress.cloud/webchat/v3.6/inject.js
 │         │ → window.botpress.init({ clientId })
-│         │ → webchat picks up the seeded identity from localStorage
+│         │ → on 'webchat:initialized':
+│         │     window.botpress.updateUser({ userKey })
+│         │ → webchat associates the user and persists its own envelope
 └─────────┘
 ```
 
@@ -45,9 +42,12 @@ la façon dont le webchat persiste l'identité dans le `localStorage`.
    créer un utilisateur Botpress et met en cache les valeurs `{ userId, userKey }` retournées.
 3. Le serveur dépose un cookie `username` et retourne
    `{ userId, userKey, conversationId }` à la page.
-4. La page écrit ces valeurs dans l'entrée `localStorage`
-   `bp-webchat-<clientId>-client` du webchat (l'enveloppe de style Zustand
-   que le webchat lit au démarrage) et charge le script `inject`.
+4. La page charge le script `inject` et appelle
+   `window.botpress.init({ clientId })`. Dès que l'événement `webchat:initialized`
+   se déclenche, elle associe l'identité via l'API publique supportée :
+   `window.botpress.updateUser({ userKey })`. Le webchat persiste alors lui-même
+   son enveloppe `localStorage` `bp-webchat-<clientId>-client` — la page ne
+   l'écrit plus.
 5. À mesure que le webchat crée ou charge une conversation, la page renvoie le
    `conversationId` en POST vers `/api/conversation` afin que le prochain appareil
    qui se connecte avec le même nom d'utilisateur reprenne aussi la même conversation.
