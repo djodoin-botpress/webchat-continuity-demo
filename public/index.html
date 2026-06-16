@@ -146,13 +146,13 @@
         </div>
         <div class="card">
           <h2>How it works</h2>
-          <pre>1. POST /api/login { username }
-2. Server looks up the username in .data/users.json
-3. If missing → POST {WEBCHAT_API}/:clientId/users → save { userId, userKey }
-4. Server returns { userId, userKey, conversationId } to this page
-5. Page loads the inject script and calls window.botpress.init({ clientId })
-6. On 'webchat:initialized', page calls
+          <pre>1. POST /api/login { username }   (no Botpress call server-side)
+2. Server records username in .data/users.json (for conversationId)
+3. Server returns { username, userKey, conversationId }, userKey === username
+4. Page loads the inject script and calls window.botpress.init({ clientId })
+5. On 'webchat:initialized', page calls
    window.botpress.updateUser({ userKey }) — explicit, supported association
+6. Webchat associates (or lazily creates) the user keyed by userKey
 </pre>
         </div>
       </section>
