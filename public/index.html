@@ -146,13 +146,12 @@
         </div>
         <div class="card">
           <h2>How it works</h2>
-          <pre>1. POST /api/login { username }   (no Botpress call server-side)
-2. Server records username in .data/users.json (for conversationId)
-3. Server returns { username, userKey, conversationId }, userKey === username
-4. Page loads the inject script and calls window.botpress.init({ clientId })
-5. On 'webchat:initialized', page calls
-   window.botpress.updateUser({ userKey }) — explicit, supported association
-6. Webchat associates (or lazily creates) the user keyed by userKey
+          <pre>1. POST /api/login { username }
+2. Server looks up the username in .data/users.json
+3. If missing → POST {WEBCHAT_API}/:clientId/users → save { userId, userKey }
+4. Server returns { userId, userKey, conversationId } to this page
+5. Page writes them into bp-webchat-&lt;clientId&gt;-client (Zustand envelope)
+6. Page loads the inject script; webchat picks up the identity
 </pre>
         </div>
       </section>
@@ -175,7 +174,7 @@
         </div>
 
         <div class="card">
-          <h2>Webchat localStorage envelope (written by the webchat)</h2>
+          <h2>Webchat localStorage envelope</h2>
           <pre id="storageBlock">…</pre>
         </div>
       </section>
@@ -185,7 +184,6 @@
       let CLIENT_ID = null;
       let STORAGE_KEY = null;
       let WEBCHAT_LOADED = false;
-      let CURRENT_USER = null;
 
       async function api(path, opts = {}) {
         const res = await fetch(path, {
@@ -196,6 +194,24 @@
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
         return data;
+      }
+
+      function writeEnvelope({ userId, userKey, conversationId }) {
+        let envelope = {
+          state: { user: { userId, userToken: userKey }, conversationId: conversationId || null },
+          version: 0,
+        };
+        const existingRaw = localStorage.getItem(STORAGE_KEY);
+        if (existingRaw) {
+          try {
+            const existing = JSON.parse(existingRaw);
+            const sameUser = existing?.state?.user?.userId === userId;
+            if (sameUser && !envelope.state.conversationId && existing?.state?.conversationId) {
+              envelope.state.conversationId = existing.state.conversationId;
+            }
+          } catch {}
+        }
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(envelope));
       }
 
       function wipeWebchatStorage() {
@@ -218,26 +234,16 @@
         catch { block.textContent = raw; }
       }
 
-      async function associateUser() {
-        if (!CURRENT_USER?.userKey) return;
-        try {
-          // Explicit, supported way to associate the Botpress user — no
-          // localStorage seeding. The webchat persists its own envelope after.
-          await window.botpress.updateUser({ userKey: CURRENT_USER.userKey });
-        } catch (err) {
-          console.warn('updateUser failed', err);
-        }
-        refreshStorageView();
-      }
-
       function loadWebchat() {
         if (WEBCHAT_LOADED) return;
         WEBCHAT_LOADED = true;
         const s = document.createElement('script');
         s.src = 'https://cdn.botpress.cloud/webchat/v3.6/inject.js';
         s.onload = () => {
-          // Register listeners before init() so we don't miss the first events.
-          window.botpress.on('webchat:initialized', associateUser);
+          window.botpress.init({
+            clientId: CLIENT_ID,
+            configuration: { color: '#3b82f6', botName: 'Continuity Demo Bot' },
+          });
           window.botpress.on('conversation', async (e) => {
             refreshStorageView();
             const convId = e?.conversationId || readConversationIdFromStorage();
@@ -247,10 +253,6 @@
             }
           });
           window.botpress.on('message', refreshStorageView);
-          window.botpress.init({
-            clientId: CLIENT_ID,
-            configuration: { color: '#3b82f6', botName: 'Continuity Demo Bot' },
-          });
         };
         document.body.appendChild(s);
       }
@@ -264,7 +266,6 @@
       }
 
       async function renderLoggedIn(user) {
-        CURRENT_USER = user;
         document.getElementById('meName').textContent = user.username;
         document.getElementById('meBlock').textContent = JSON.stringify(user, null, 2);
         refreshStorageView();
@@ -290,6 +291,7 @@
             method: 'POST',
             body: JSON.stringify({ username }),
           });
+          writeEnvelope(data);
           await renderLoggedIn(data);
         } catch (err) {
           errEl.textContent = err.message;
@@ -309,6 +311,7 @@
 
         const { user } = await api('/api/me');
         if (user) {
+          writeEnvelope(user);
           await renderLoggedIn(user);
         } else {
           renderLoggedOut();

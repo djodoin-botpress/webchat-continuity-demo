@@ -13,40 +13,48 @@ how the webchat persists identity to `localStorage`.
 ```
 ┌─────────┐   POST /api/login         ┌─────────┐
 │ Browser │ ───────────────────────▶  │ Node    │
-│         │   { username }            │ server  │  (no Botpress call —
-│         │                           │         │   just cookie + conv store)
-│         │   { username, userKey,    │         │
+│         │   { username }            │ server  │
+│         │                           │         │
+│         │                           │  POST {WEBCHAT_API}/:clientId/users
+│         │                           │  { name: <username> }
+│         │                           │         │
+│         │                           │  ┌──────▼──────────┐
+│         │                           │  │ Botpress Chat   │
+│         │                           │  │ API             │
+│         │                           │  └──────┬──────────┘
+│         │                           │         │
+│         │   { userId, userKey,      │         │
 │         │     conversationId }      │         │
-│         │ ◀───────────────────────  │         │  userKey === username
+│         │ ◀───────────────────────  │         │
 │         │                           └─────────┘
+│         │
+│         │ writes to localStorage:
+│         │   bp-webchat-<clientId>-client
+│         │   = { state: { user: { userId, userToken }, conversationId },
+│         │       version: 0 }
 │         │
 │         │ loads https://cdn.botpress.cloud/webchat/v3.6/inject.js
 │         │ → window.botpress.init({ clientId })
-│         │ → on 'webchat:initialized':
-│         │     window.botpress.updateUser({ userKey })   ──▶ Botpress Chat API
-│         │ → webchat associates (or lazily creates) the user keyed by userKey
+│         │ → webchat picks up the seeded identity from localStorage
 └─────────┘
 ```
 
 1. The browser POSTs a username to `/api/login`.
-2. The Node server records the username in `.data/users.json` (just to remember
-   its `conversationId`) and sets a `username` cookie. It makes **no** call to
-   Botpress — the webchat associates the user itself.
-3. The server returns `{ username, userKey, conversationId }`, where
-   `userKey === username`.
-4. The page loads the inject script and calls
-   `window.botpress.init({ clientId })`. Once the `webchat:initialized`
-   event fires, it associates the identity with the supported public API:
-   `window.botpress.updateUser({ userKey })`. The webchat associates (or
-   lazily creates) the Botpress user keyed by that `userKey` and persists its
-   own `bp-webchat-<clientId>-client` localStorage envelope.
+2. The Node server looks up the username in `.data/users.json`. If unknown,
+   it calls `POST https://webchat.botpress.cloud/<clientId>/users` to
+   create a Botpress user and caches the returned `{ userId, userKey }`.
+3. The server sets a `username` cookie and returns
+   `{ userId, userKey, conversationId }` to the page.
+4. The page writes that into the webchat's
+   `bp-webchat-<clientId>-client` localStorage entry (the Zustand-style
+   envelope the webchat reads on startup) and loads the inject script.
 5. As the webchat creates/loads a conversation, the page POSTs the
    `conversationId` back to `/api/conversation` so the next device that
    logs in with the same username also resumes the same conversation.
 
 ## Prerequisites
 
-- Node.js ≥ 18
+- Node.js ≥ 18 (uses native `fetch`)
 - A Botpress Webchat `clientId`
   (Botpress Cloud → Webchat → Advanced → Configuration → clientId)
 
@@ -64,6 +72,7 @@ Optional env vars:
 |-------------------|-------------------------------------|----------------------------------------|
 | `CLIENT_ID`       | _(required)_                        | Webchat clientId                       |
 | `PORT`            | `8000`                              | Local server port                      |
+| `WEBCHAT_API_URL` | `https://webchat.botpress.cloud`    | Override for non-default Chat API base |
 
 ## Try cross-device continuity
 
@@ -81,7 +90,7 @@ To switch identities, click **Log out** — this clears the cookie and every
 |--------|---------------------|------------------------------------------------------------|
 | `GET`  | `/api/config`       | Returns `{ clientId }`                                     |
 | `GET`  | `/api/me`           | Returns the current `{ user }` from cookie, or `null`      |
-| `POST` | `/api/login`        | Body `{ username }`. Sets cookie. Returns `userKey` (= username). |
+| `POST` | `/api/login`        | Body `{ username }`. Ensures Botpress user. Sets cookie.   |
 | `POST` | `/api/logout`       | Clears the cookie                                          |
 | `POST` | `/api/conversation` | Body `{ conversationId }`. Persists the current conv id    |
 
@@ -95,23 +104,23 @@ To switch identities, click **Log out** — this clears the cookie and every
 │   └── static-demo.html   # Standalone (no-backend) localStorage explorer
 ├── package.json
 ├── .gitignore             # excludes node_modules/, .data/
-└── .data/users.json       # username → { conversationId } (gitignored)
+└── .data/users.json       # username → { userId, userKey, conversationId } (gitignored)
 ```
 
 ## Caveats
 
 This is intentionally minimal:
 
-- **No password.** The `userKey` is just the username, so anyone who knows a
-  username can resume that session. For real auth, use an unguessable,
-  server-issued `userKey` instead of the plain username.
+- **No password.** Anyone who knows a username can resume that session.
+- **No `userKey` refresh.** The JWT is cached forever in `.data/users.json`.
+  When it eventually expires, the simplest fix is to delete the entry and
+  log in again (which creates a new Botpress user) — or extend the server
+  to call `generateUserKey` (requires an admin secret).
 - **`conversationId` sync** only happens on the webchat's `conversation`
   event. Messages don't re-sync the id; if you want belt-and-suspenders,
   also POST from the `message` handler with a small debounce.
-- **No server-side Botpress calls.** User creation/association is delegated
-  entirely to the webchat via `updateUser({ userKey })`. If you need
-  deterministic server-managed users (or to rotate keys), pre-create them with
-  `POST /:clientId/users` + `x-admin-secret` and pass the returned key instead.
+- **`x-admin-secret`** isn't used. With it, you can pre-create users with
+  deterministic IDs and rotate user keys server-side.
 
 ## License
 
