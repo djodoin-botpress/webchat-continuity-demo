@@ -8,7 +8,6 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const PORT = Number(process.env.PORT) || 8000;
 const CLIENT_ID = process.env.CLIENT_ID;
-const WEBCHAT_API_URL = process.env.WEBCHAT_API_URL || 'https://webchat.botpress.cloud';
 
 if (!CLIENT_ID) {
   console.error('CLIENT_ID env var is required.');
@@ -17,6 +16,11 @@ if (!CLIENT_ID) {
   process.exit(1);
 }
 
+// We no longer pre-create Botpress users via POST /:clientId/users. The webchat
+// associates (and lazily creates) the Botpress user itself from the `userKey`
+// passed to window.botpress.updateUser(). Here `userKey === username`, so the
+// only thing this server persists is the username → conversationId mapping,
+// which lets a second device resume the same conversation.
 const USERS_FILE = path.join(__dirname, '.data', 'users.json');
 await mkdir(path.dirname(USERS_FILE), { recursive: true });
 
@@ -30,19 +34,6 @@ async function readUsers() {
 
 async function writeUsers(users) {
   await writeFile(USERS_FILE, JSON.stringify(users, null, 2));
-}
-
-async function createBotpressUser(name) {
-  const res = await fetch(`${WEBCHAT_API_URL}/${CLIENT_ID}/users`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name }),
-  });
-  const text = await res.text();
-  if (!res.ok) {
-    throw new Error(`Botpress createUser ${res.status}: ${text}`);
-  }
-  return JSON.parse(text);
 }
 
 const app = express();
@@ -63,8 +54,7 @@ app.get('/api/me', async (req, res) => {
   res.json({
     user: {
       username,
-      userId: record.userId,
-      userKey: record.userKey,
+      userKey: username, // the username IS the stable webchat user key
       conversationId: record.conversationId ?? null,
     },
   });
@@ -78,23 +68,12 @@ app.post('/api/login', async (req, res) => {
 
   const users = await readUsers();
   if (!users[raw]) {
-    try {
-      const result = await createBotpressUser(raw);
-      users[raw] = {
-        userId: result.user.id,
-        userKey: result.key,
-        conversationId: null,
-        createdAt: new Date().toISOString(),
-      };
-      await writeUsers(users);
-    } catch (e) {
-      return res.status(502).json({ error: e.message });
-    }
+    users[raw] = { conversationId: null, createdAt: new Date().toISOString() };
+    await writeUsers(users);
   }
 
   res.cookie('username', raw, { sameSite: 'lax', maxAge: 30 * 24 * 60 * 60 * 1000 });
-  const { userId, userKey, conversationId } = users[raw];
-  res.json({ username: raw, userId, userKey, conversationId: conversationId ?? null });
+  res.json({ username: raw, userKey: raw, conversationId: users[raw].conversationId ?? null });
 });
 
 app.post('/api/logout', (_req, res) => {
